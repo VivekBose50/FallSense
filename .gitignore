@@ -1,0 +1,17 @@
+# Build folders
+Debug/
+Release/
+build/
+
+# IDE stuff
+.settings/
+.project
+.cproject
+
+# OS
+.DS_Store
+
+# STM32CubeIDE extra junk
+*.launch
+.mxproject
+.osx.project
