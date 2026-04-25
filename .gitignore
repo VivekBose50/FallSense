@@ -1,17 +1,39 @@
-# Build folders
+# =========================
+# Build outputs
+# =========================
 Debug/
 Release/
 build/
 
-# IDE stuff
-.settings/
-.project
-.cproject
+# =========================
+# Compiled / binary files
+# =========================
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
 
-# OS
+# =========================
+# CubeIDE (user-specific)
+# =========================
+*.launch
+
+# =========================
+# VS Code (local editor config)
+# =========================
+.vscode/
+
+# =========================
+# OS files
+# =========================
 .DS_Store
 
-# STM32CubeIDE extra junk
-*.launch
-.mxproject
-.osx.project
+# =========================
+# Temporary / logs
+# =========================
+*.log
+*.tmp
+*.bak
+*.swp

@@ -33,6 +33,9 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <string.h>
+#include <stdbool.h>
+#include "fall_config.h"
 
 #define IMU_ADDR (0x6B << 1)
 #define CTRL1_XL      0x10

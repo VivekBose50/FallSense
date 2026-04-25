@@ -18,10 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <string.h>
-#include <stdbool.h>
-#include <math.h>
-
+#include "logger.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -60,12 +57,11 @@ static void MX_ICACHE_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 bool detect_fall(float, float, float);
+void Accelerometer_Init();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-
 
 /* USER CODE END 0 */
 
@@ -103,26 +99,7 @@ int main(void) {
 	MX_ICACHE_Init();
 	MX_I2C1_Init();
 	/* USER CODE BEGIN 2 */
-	//Enable accelerometer : Write to register CTRL1_XL:
-	/*ODR_104HZ | FS_2G = 0x60 decoded:
-	 *
-	 * 0110 0000
-	 * ^^^^ ---- → ODR(Output Data Rate) = 0110 = 416 Hz
-	 * ---- ^^-- → FS(Full Scale) = 00 = ±2g
-	 * ------ ^^ → BW(BandWidth) = default
-	 */
-	uint8_t config = ODR_416HZ | FS_2G;
-
-	HAL_I2C_Mem_Write(&hi2c1, IMU_ADDR, CTRL1_XL,
-	I2C_MEMADD_SIZE_8BIT, &config, 1, HAL_MAX_DELAY);
-
-	uint8_t ctrl3 = 0x44;
-	// 0x40 → BDU = 1
-	// 0x04 → IF_INC = 1
-
-	HAL_I2C_Mem_Write(&hi2c1, IMU_ADDR, 0x12,
-	I2C_MEMADD_SIZE_8BIT, &ctrl3, 1, HAL_MAX_DELAY);
-	HAL_Delay(100);
+	Accelerometer_Init();
 	/* USER CODE END 2 */
 
 	/* Initialize leds */
@@ -142,25 +119,6 @@ int main(void) {
 	if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
 		Error_Handler();
 	}
-	uint8_t check = 0;
-
-	HAL_I2C_Mem_Read(&hi2c1, IMU_ADDR, CTRL1_XL,
-	I2C_MEMADD_SIZE_8BIT, &check, 1, HAL_MAX_DELAY);
-
-	char msg2[50];
-	sprintf(msg2, "CTRL1_XL: 0x%X\r\n", check);
-	HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*) msg2, strlen(msg2),
-			HAL_MAX_DELAY);
-
-	char msgSuccess[] = "the I2C Conn Initialized...\n";
-	char msgFailure[] = "the I2C Conn still Failed...\n";
-	if (HAL_I2C_IsDeviceReady(&hi2c1, IMU_ADDR, 3, 100) == HAL_OK) {
-		HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*) msgSuccess,
-				sizeof(msgSuccess) - 1, HAL_MAX_DELAY);
-	} else {
-		HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*) msgFailure,
-				sizeof(msgFailure) - 1, HAL_MAX_DELAY);
-	}
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
@@ -174,28 +132,25 @@ int main(void) {
 		uint8_t raw[6];
 
 		HAL_I2C_Mem_Read(&hi2c1, IMU_ADDR, 0x28, I2C_MEMADD_SIZE_8BIT, raw, 6,
-				HAL_MAX_DELAY);
-		float ax_g = ((int16_t)(raw[1] << 8 | raw[0])) * 0.000061f;
-		float ay_g = ((int16_t)(raw[3] << 8 | raw[2])) * 0.000061f;
-		float az_g = ((int16_t)(raw[5] << 8 | raw[4])) * 0.000061f;
+		HAL_MAX_DELAY);
+		float ax_g = ((int16_t) (raw[1] << 8 | raw[0])) * 0.000061f;
+		float ay_g = ((int16_t) (raw[3] << 8 | raw[2])) * 0.000061f;
+		float az_g = ((int16_t) (raw[5] << 8 | raw[4])) * 0.000061f;
 
-
-		char msg[100];
-
-		sprintf(msg, "AX:%.2f AY:%.2f AZ:%.2f\r\n", ax_g, ay_g, az_g);
-
-		HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*) msg, strlen(msg),
-				HAL_MAX_DELAY);
+		log_info( "AX:%.2f AY:%.2f AZ:%.2f", ax_g, ay_g, az_g);
 
 		HAL_Delay(200);
 
-		if (detect_fall(ax_g, ay_g, az_g))
-		{
-		    char fallMsg[] = "FALL DETECTED!\r\n";
-		    HAL_UART_Transmit(&hcom_uart[COM1],
-		                      (uint8_t*)fallMsg,
-		                      sizeof(fallMsg)-1,
-		                      HAL_MAX_DELAY);
+		//Adding the lowPass Filter
+		static float ax_f = 0, ay_f = 0, az_f = 0;
+
+		ax_f = FILTER_ALPHA * ax_g + (1 - FILTER_ALPHA) * ax_f;
+		ay_f = FILTER_ALPHA * ay_g + (1 - FILTER_ALPHA) * ay_f;
+		az_f = FILTER_ALPHA * az_g + (1 - FILTER_ALPHA) * az_f;
+
+		if (detect_fall(ax_f, ay_f, az_f)) 
+    {
+		  log_info( "FALL DETECTED!");
 		}
 
 		if (BSP_PB_GetState(BUTTON_USER) == BUTTON_PRESSED) {
@@ -292,9 +247,7 @@ static void MX_I2C1_Init(void) {
 
 	/* USER CODE END I2C1_Init 1 */
 	hi2c1.Instance = I2C1;
-	/* USER CODE BEGIN I2C1_Init 0 */
-	hi2c1.Init.Timing = 0x10707DBC;
-	/* USER CODE END I2C1_Init 0 */
+	hi2c1.Init.Timing = 0x00400D10;
 	hi2c1.Init.OwnAddress1 = 0;
 	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -374,39 +327,66 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
-bool detect_fall(float ax, float ay, float az)
+
+void Accelerometer_Init()
 {
-    static int state = 0;
-    static uint32_t fall_time = 0;
+  //Write to register CTRL1_XL:
+	/*ODR_104HZ | FS_2G = 0x60 decoded:
+	 *
+	 * 0110 0000
+	 * ^^^^ ---- → ODR(Output Data Rate) = 0110 = 416 Hz
+	 * ---- ^^-- → FS(Full Scale) = 00 = ±2g
+	 * ------ ^^ → BW(BandWidth) = default
+	 */
+	uint8_t config = ODR_416HZ | FS_2G;
 
-    float mag = sqrtf(ax*ax + ay*ay + az*az);
+	HAL_I2C_Mem_Write(&hi2c1, IMU_ADDR, CTRL1_XL,
+	I2C_MEMADD_SIZE_8BIT, &config, 1, HAL_MAX_DELAY);
 
-    switch(state)
-    {
-        case 0: // Normal
-            if (mag < 0.3f)   // Free fall detected
-            {
-                state = 1;
-                fall_time = HAL_GetTick();
-            }
-            break;
+	uint8_t ctrl3 = 0x44;
+	// 0x40 → BDU = 1
+	// 0x04 → IF_INC = 1
 
-        case 1: // Waiting for impact
-            if (mag > 2.5f)   // Impact detected
-            {
-                state = 0;
-                return true;     // FALL DETECTED
-            }
+	HAL_I2C_Mem_Write(&hi2c1, IMU_ADDR, 0x12,
+	I2C_MEMADD_SIZE_8BIT, &ctrl3, 1, HAL_MAX_DELAY);
+	HAL_Delay(100);
+}
 
-            // Timeout (no impact → false trigger)
-            if (HAL_GetTick() - fall_time > 1000)
-            {
-                state = 0;
-            }
-            break;
-    }
 
-    return false;
+bool detect_fall(float ax, float ay, float az) {
+	static int state = 0;
+	static uint32_t t0 = 0;
+
+	float mag = sqrtf(ax * ax + ay * ay + az * az);
+
+	switch (state) {
+	case 0: // Normal
+		if (mag < FALL_FREEFALL_THRESHOLD)   // free fall
+		{
+			state = 1;
+			t0 = HAL_GetTick();
+		}
+		break;
+
+	case 1: // Falling
+		if (mag > FALL_IMPACT_THRESHOLD)   // impact
+		{
+			state = 2;
+			t0 = HAL_GetTick();
+		} else if (HAL_GetTick() - t0 > FALL_FREEFALL_TIMEOUT_MS) {
+			state = 0; // timeout
+		}
+		break;
+
+	case 2: // Post-impact (check stillness)
+		if (HAL_GetTick() - t0 > FALL_STILLNESS_TIME_MS) {
+			state = 0;
+			return true; // confirmed fall
+		}
+		break;
+	}
+
+	return false;
 }
 /* USER CODE END 4 */
 
