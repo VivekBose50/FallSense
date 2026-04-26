@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "logger.h"
+#include "imu.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -56,8 +57,7 @@ static void MX_GPIO_Init(void);
 static void MX_ICACHE_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
-bool detect_fall(float, float, float);
-void Accelerometer_Init();
+bool detect_fall(float, float);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -99,7 +99,7 @@ int main(void) {
 	MX_ICACHE_Init();
 	MX_I2C1_Init();
 	/* USER CODE BEGIN 2 */
-	Accelerometer_Init();
+	imu_init();
 	/* USER CODE END 2 */
 
 	/* Initialize leds */
@@ -123,34 +123,46 @@ int main(void) {
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 	uint32_t last = 0;
+	float ax_g = 0, ay_g = 0, az_g = 0;
+	float ax_filtered = 0, ay_filtered = 0, az_filtered = 0;
+	float gx = 0, gy = 0, gz = 0;
+	float gx_filtered = 0, gy_filtered = 0, gz_filtered = 0;
 	while (1) {
 
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
+		imu_read_accel(&ax_g, &ay_g, &az_g);
+		//log_info( "AX:%.2f AY:%.2f AZ:%.2f", ax_g, ay_g, az_g);
 
-		uint8_t raw[6];
-
-		HAL_I2C_Mem_Read(&hi2c1, IMU_ADDR, 0x28, I2C_MEMADD_SIZE_8BIT, raw, 6,
-		HAL_MAX_DELAY);
-		float ax_g = ((int16_t) (raw[1] << 8 | raw[0])) * 0.000061f;
-		float ay_g = ((int16_t) (raw[3] << 8 | raw[2])) * 0.000061f;
-		float az_g = ((int16_t) (raw[5] << 8 | raw[4])) * 0.000061f;
-
-		log_info( "AX:%.2f AY:%.2f AZ:%.2f", ax_g, ay_g, az_g);
-
-		HAL_Delay(200);
+		imu_read_gyro(&gx, &gy, &gz);
 
 		//Adding the lowPass Filter
-		static float ax_f = 0, ay_f = 0, az_f = 0;
 
-		ax_f = FILTER_ALPHA * ax_g + (1 - FILTER_ALPHA) * ax_f;
-		ay_f = FILTER_ALPHA * ay_g + (1 - FILTER_ALPHA) * ay_f;
-		az_f = FILTER_ALPHA * az_g + (1 - FILTER_ALPHA) * az_f;
+		ax_filtered = FILTER_ALPHA * ax_g + (1 - FILTER_ALPHA) * ax_filtered;
+		ay_filtered = FILTER_ALPHA * ay_g + (1 - FILTER_ALPHA) * ay_filtered;
+		az_filtered = FILTER_ALPHA * az_g + (1 - FILTER_ALPHA) * az_filtered;
 
-		if (detect_fall(ax_f, ay_f, az_f)) 
-    {
-		  log_info( "FALL DETECTED!");
+		float acc_mag = sqrtf(
+				ax_filtered * ax_filtered + ay_filtered * ay_filtered
+						+ az_filtered * az_filtered);
+
+		gx_filtered = FILTER_ALPHA * gx + (1 - FILTER_ALPHA) * gx_filtered;
+		gy_filtered = FILTER_ALPHA * gy + (1 - FILTER_ALPHA) * gy_filtered;
+		gz_filtered = FILTER_ALPHA * gz + (1 - FILTER_ALPHA) * gz_filtered;
+
+		float gyro_mag = sqrtf(
+				gx_filtered * gx_filtered + gy_filtered * gy_filtered
+						+ gz_filtered * gz_filtered);
+
+		static uint32_t last_log = 0;
+		if (HAL_GetTick() - last_log > 200) {
+			log_info("Acc_mag: %.2f, Gyro_mag: %.2f", acc_mag, gyro_mag);
+			last_log = HAL_GetTick();
+		}
+
+		if (detect_fall(acc_mag, gyro_mag)) {
+			log_info("FALL DETECTED!!!!!!!!!!!!!!!!!!!!");
 		}
 
 		if (BSP_PB_GetState(BUTTON_USER) == BUTTON_PRESSED) {
@@ -165,7 +177,7 @@ int main(void) {
 			BSP_LED_Off(LED_RED);
 			BSP_LED_On(LED_BLUE);
 		}
-
+		HAL_Delay(MAIN_LOOP_PERIOD_MS);
 	}
 	/* USER CODE END 3 */
 }
@@ -328,60 +340,40 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
-void Accelerometer_Init()
-{
-  //Write to register CTRL1_XL:
-	/*ODR_104HZ | FS_2G = 0x60 decoded:
-	 *
-	 * 0110 0000
-	 * ^^^^ ---- → ODR(Output Data Rate) = 0110 = 416 Hz
-	 * ---- ^^-- → FS(Full Scale) = 00 = ±2g
-	 * ------ ^^ → BW(BandWidth) = default
-	 */
-	uint8_t config = ODR_416HZ | FS_2G;
-
-	HAL_I2C_Mem_Write(&hi2c1, IMU_ADDR, CTRL1_XL,
-	I2C_MEMADD_SIZE_8BIT, &config, 1, HAL_MAX_DELAY);
-
-	uint8_t ctrl3 = 0x44;
-	// 0x40 → BDU = 1
-	// 0x04 → IF_INC = 1
-
-	HAL_I2C_Mem_Write(&hi2c1, IMU_ADDR, 0x12,
-	I2C_MEMADD_SIZE_8BIT, &ctrl3, 1, HAL_MAX_DELAY);
-	HAL_Delay(100);
-}
-
-
-bool detect_fall(float ax, float ay, float az) {
+bool detect_fall(float acc_mag, float gyro_mag) {
 	static int state = 0;
 	static uint32_t t0 = 0;
 
-	float mag = sqrtf(ax * ax + ay * ay + az * az);
-
 	switch (state) {
 	case 0: // Normal
-		if (mag < FALL_FREEFALL_THRESHOLD)   // free fall
+		if (acc_mag < FALL_FREEFALL_ACC_THRESHOLD)   // free fall
 		{
 			state = 1;
 			t0 = HAL_GetTick();
+			log_info("FREE FALL--------- : A=%.2f", acc_mag);
 		}
 		break;
 
 	case 1: // Falling
-		if (mag > FALL_IMPACT_THRESHOLD)   // impact
+		if (acc_mag > FALL_IMPACT_ACC_THRESHOLD)   // impact
 		{
 			state = 2;
 			t0 = HAL_GetTick();
-		} else if (HAL_GetTick() - t0 > FALL_FREEFALL_TIMEOUT_MS) {
+			log_info(" IMPACT--------- : A=%.2f", acc_mag);
+		} else if (HAL_GetTick() - t0 > FALL_FREEFALL_ACC_TIMEOUT_MS) {
 			state = 0; // timeout
 		}
 		break;
 
-	case 2: // Post-impact (check stillness)
+	case 2: // Post-impact (verify stillness)
 		if (HAL_GetTick() - t0 > FALL_STILLNESS_TIME_MS) {
-			state = 0;
-			return true; // confirmed fall
+			state = 0;      //Reset state
+			if (acc_mag < FALL_STILL_ACC_THRESHOLD_G
+					&& gyro_mag < FALL_STILL_GYRO_THRESHOLD_DPS) {
+
+				log_info("STILL--------- : A=%.2f  G=%.2f", acc_mag, gyro_mag);
+				return true;
+			}
 		}
 		break;
 	}

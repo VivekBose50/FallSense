@@ -1,0 +1,21 @@
+@startuml
+hide empty description
+
+[*] --> Normal
+
+Normal : state = 0
+Falling : state = 1
+PostImpact : state = 2
+FallConfirmed : event
+
+Normal --> Falling : acc_mag < FALL_FREEFALL_ACC_THRESHOLD
+
+Falling --> PostImpact : acc_mag > FALL_IMPACT_ACC_THRESHOLD
+Falling --> Normal : timeout\n(FALL_FREEFALL_ACC_TIMEOUT_MS)
+
+PostImpact --> FallConfirmed : after FALL_STILLNESS_TIME_MS\n&& acc_mag < FALL_STILL_ACC_THRESHOLD_G\n&& gyro_mag < FALL_STILL_GYRO_THRESHOLD_DPS
+
+PostImpact --> Normal : not still
+
+FallConfirmed --> Normal
+@enduml
