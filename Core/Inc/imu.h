@@ -1,6 +1,7 @@
 #pragma once
 
 #include "main.h"
+#include "filter.h"
 #include <stdint.h>
 
 #define IMU_ADDR (0x6B << 1)
@@ -15,28 +16,20 @@
 
 #define MAIN_LOOP_PERIOD_MS 10    // ~100 Hz loop
 
+typedef struct {
+	float ax, ay, az;
+	float gx, gy, gz;
+	float acc_mag;
+	float gyro_mag;
+} imu_data_t;
+
 /**
  * @brief IMU Initialization Function
- * @param None
- * @retval None
  */
 void imu_init(void);
 
 /**
- * @brief accelerometer read Function
- * @param gx x axis output value
- * @param gy y axis output value
- * @param gz z axis output value
- * @retval None
- */
-void imu_read_accel(float *ax_g, float *ay_g, float *az_g);
+ * @brief filter and calculates magnitude of accelerometer and gyroscope data
 
-/**
- * @brief gyroscope read Function
- * @param gx x axis output value
- * @param gy y axis output value
- * @param gz z axis output value
- * @retval None
  */
-void imu_read_gyro(float *gx, float *gy, float *gz);
-
+void imu_process(imu_data_t *data);

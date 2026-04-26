@@ -20,6 +20,9 @@
 #include "main.h"
 #include "logger.h"
 #include "imu.h"
+#include "fall_detection.h"
+#include "event_handler.h"
+#include "filter.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -57,7 +60,6 @@ static void MX_GPIO_Init(void);
 static void MX_ICACHE_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
-bool detect_fall(float, float);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -122,49 +124,26 @@ int main(void) {
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
-	uint32_t last = 0;
-	float ax_g = 0, ay_g = 0, az_g = 0;
-	float ax_filtered = 0, ay_filtered = 0, az_filtered = 0;
-	float gx = 0, gy = 0, gz = 0;
-	float gx_filtered = 0, gy_filtered = 0, gz_filtered = 0;
+	imu_data_t imu;
+	imu_init();
+
 	while (1) {
 
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
-		imu_read_accel(&ax_g, &ay_g, &az_g);
-		//log_info( "AX:%.2f AY:%.2f AZ:%.2f", ax_g, ay_g, az_g);
+		imu_process(&imu);
 
-		imu_read_gyro(&gx, &gy, &gz);
-
-		//Adding the lowPass Filter
-
-		ax_filtered = FILTER_ALPHA * ax_g + (1 - FILTER_ALPHA) * ax_filtered;
-		ay_filtered = FILTER_ALPHA * ay_g + (1 - FILTER_ALPHA) * ay_filtered;
-		az_filtered = FILTER_ALPHA * az_g + (1 - FILTER_ALPHA) * az_filtered;
-
-		float acc_mag = sqrtf(
-				ax_filtered * ax_filtered + ay_filtered * ay_filtered
-						+ az_filtered * az_filtered);
-
-		gx_filtered = FILTER_ALPHA * gx + (1 - FILTER_ALPHA) * gx_filtered;
-		gy_filtered = FILTER_ALPHA * gy + (1 - FILTER_ALPHA) * gy_filtered;
-		gz_filtered = FILTER_ALPHA * gz + (1 - FILTER_ALPHA) * gz_filtered;
-
-		float gyro_mag = sqrtf(
-				gx_filtered * gx_filtered + gy_filtered * gy_filtered
-						+ gz_filtered * gz_filtered);
+		handle_event(detect_fall(imu.acc_mag, imu.gyro_mag));
 
 		static uint32_t last_log = 0;
 		if (HAL_GetTick() - last_log > 200) {
-			log_info("Acc_mag: %.2f, Gyro_mag: %.2f", acc_mag, gyro_mag);
+			log_info("Acc_mag: %.2f, Gyro_mag: %.2f", imu.acc_mag,
+					imu.gyro_mag);
 			last_log = HAL_GetTick();
 		}
 
-		if (detect_fall(acc_mag, gyro_mag)) {
-			log_info("FALL DETECTED!!!!!!!!!!!!!!!!!!!!");
-		}
-
+		static uint32_t last = 0;
 		if (BSP_PB_GetState(BUTTON_USER) == BUTTON_PRESSED) {
 			if (HAL_GetTick() - last > 500) {
 				HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
@@ -340,46 +319,6 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
-bool detect_fall(float acc_mag, float gyro_mag) {
-	static int state = 0;
-	static uint32_t t0 = 0;
-
-	switch (state) {
-	case 0: // Normal
-		if (acc_mag < FALL_FREEFALL_ACC_THRESHOLD)   // free fall
-		{
-			state = 1;
-			t0 = HAL_GetTick();
-			log_info("FREE FALL--------- : A=%.2f", acc_mag);
-		}
-		break;
-
-	case 1: // Falling
-		if (acc_mag > FALL_IMPACT_ACC_THRESHOLD)   // impact
-		{
-			state = 2;
-			t0 = HAL_GetTick();
-			log_info(" IMPACT--------- : A=%.2f", acc_mag);
-		} else if (HAL_GetTick() - t0 > FALL_FREEFALL_ACC_TIMEOUT_MS) {
-			state = 0; // timeout
-		}
-		break;
-
-	case 2: // Post-impact (verify stillness)
-		if (HAL_GetTick() - t0 > FALL_STILLNESS_TIME_MS) {
-			state = 0;      //Reset state
-			if (acc_mag < FALL_STILL_ACC_THRESHOLD_G
-					&& gyro_mag < FALL_STILL_GYRO_THRESHOLD_DPS) {
-
-				log_info("STILL--------- : A=%.2f  G=%.2f", acc_mag, gyro_mag);
-				return true;
-			}
-		}
-		break;
-	}
-
-	return false;
-}
 /* USER CODE END 4 */
 
 /**

@@ -3,11 +3,23 @@
 extern I2C_HandleTypeDef hi2c1;
 static I2C_HandleTypeDef *imu_i2c = &hi2c1;
 
+static low_pass_filter_t ax_f, ay_f, az_f;
+static low_pass_filter_t gx_f, gy_f, gz_f;
+
 static int16_t combine_bytes(uint8_t l, uint8_t h) {
 	return (int16_t) (h << 8 | l);
 }
 
 void imu_init(void) {
+
+	lpf_init(&ax_f, FILTER_ALPHA);
+	lpf_init(&ay_f, FILTER_ALPHA);
+	lpf_init(&az_f, FILTER_ALPHA);
+
+	lpf_init(&gx_f, FILTER_ALPHA);
+	lpf_init(&gy_f, FILTER_ALPHA);
+	lpf_init(&gz_f, FILTER_ALPHA);
+
 	//Accelerometer:
 	//Write to register CTRL1_XL:
 	/*ODR_416HZ | FS_2G = 0x60 decoded:
@@ -45,7 +57,7 @@ void imu_init(void) {
 	HAL_Delay(100);
 }
 
-void imu_read_accel(float *ax_g, float *ay_g, float *az_g) {
+static void imu_read_accel(float *ax_g, float *ay_g, float *az_g) {
 	uint8_t raw[6];
 
 	HAL_I2C_Mem_Read(imu_i2c, IMU_ADDR, 0x28,
@@ -60,7 +72,7 @@ void imu_read_accel(float *ax_g, float *ay_g, float *az_g) {
 	*az_g = az_raw * ACC_SENSITIVITY;
 }
 
-void imu_read_gyro(float *gx, float *gy, float *gz) {
+static void imu_read_gyro(float *gx, float *gy, float *gz) {
 	uint8_t raw[6];
 
 	HAL_I2C_Mem_Read(imu_i2c, IMU_ADDR, 0x22,
@@ -73,4 +85,26 @@ void imu_read_gyro(float *gx, float *gy, float *gz) {
 	*gx = gx_raw * GYRO_SENSITIVITY;
 	*gy = gy_raw * GYRO_SENSITIVITY;
 	*gz = gz_raw * GYRO_SENSITIVITY;
+}
+
+void imu_process(imu_data_t *data) {
+	float ax, ay, az;
+	float gx, gy, gz;
+
+	imu_read_accel(&ax, &ay, &az);
+	imu_read_gyro(&gx, &gy, &gz);
+
+	// filtering
+	data->ax = lpf_apply(&ax_f, ax);
+	data->ay = lpf_apply(&ay_f, ay);
+	data->az = lpf_apply(&az_f, az);
+	data->gx = lpf_apply(&gx_f, gx);
+	data->gy = lpf_apply(&gy_f, gy);
+	data->gz = lpf_apply(&gz_f, gz);
+
+	// Derived values
+	data->acc_mag = sqrtf(
+			data->ax * data->ax + data->ay * data->ay + data->az * data->az);
+	data->gyro_mag = sqrtf(
+			data->gx * data->gx + data->gy * data->gy + data->gz * data->gz);
 }
