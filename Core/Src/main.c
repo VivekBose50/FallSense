@@ -134,7 +134,7 @@ int main(void) {
 		/* USER CODE BEGIN 3 */
 		imu_process(&imu);
 
-		handle_event(detect_fall(imu.acc_mag, imu.gyro_mag));
+		handle_event(detect_fall(&imu));
 
 		static uint32_t last_log = 0;
 		if (HAL_GetTick() - last_log > 200) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stm32u5xx_hal.h"
+#include "imu.h"
 #include "logger.h"
 #include "fall_config.h"
 #include <stdint.h>
@@ -19,4 +20,4 @@ typedef enum {
     FALL_STATE_POST_IMPACT
 } fall_state_t;
 
-fall_event_t detect_fall(float acc_mag, float gyro_mag);
+fall_event_t detect_fall(const imu_data_t*);

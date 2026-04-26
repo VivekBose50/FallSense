@@ -6,5 +6,6 @@
 #define FALL_STILL_GYRO_THRESHOLD_DPS   20.0f
 #define FALL_FREEFALL_ACC_TIMEOUT_MS    800      //1000   for testing  
 #define FALL_STILLNESS_TIME_MS          1000     //500    for testing  
+#define FALL_FREEFALL_Z_THRESHOLD          0.3f
+#define FALL_IMPACT_GYRO_THRESHOLD         100.0f
 #define FILTER_ALPHA                    0.2f
-
