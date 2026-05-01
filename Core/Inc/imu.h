@@ -15,6 +15,7 @@
 #define GYRO_SENSITIVITY 0.00875f  // 250 dps
 
 #define MAIN_LOOP_PERIOD_MS 10    // ~100 Hz loop
+#define IMU_ACTIVATION_PERIOD_MS 10    // ~100 Hz loop
 
 typedef struct {
 	float ax, ay, az;

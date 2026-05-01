@@ -23,6 +23,7 @@
 #include "fall_detection.h"
 #include "event_handler.h"
 #include "filter.h"
+#include "fsr.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -102,6 +103,7 @@ int main(void) {
 	MX_I2C1_Init();
 	/* USER CODE BEGIN 2 */
 	imu_init();
+  fsr_init();
 	/* USER CODE END 2 */
 
 	/* Initialize leds */
@@ -125,23 +127,48 @@ int main(void) {
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 	imu_data_t imu;
-	imu_init();
 
 	while (1) {
 
 		/* USER CODE END WHILE */
-
 		/* USER CODE BEGIN 3 */
-		imu_process(&imu);
+    bool imu_active = false;
+    static bool triggered = false;
+		if (fsr_detect_instability() && !triggered)
+    {
+      triggered = true;
+      imu_active = true;
+      // Activate IMU pipeline
+      for (int i = 0; i < 100; i++)   // ~1 second
+      {
+          imu_process(&imu);
 
-		handle_event(detect_fall(&imu));
+          fall_event_t event = detect_fall(&imu);
 
-		static uint32_t last_log = 0;
-		if (HAL_GetTick() - last_log > 200) {
-			log_info("Acc_mag: %.2f, Gyro_mag: %.2f", imu.acc_mag,
-					imu.gyro_mag);
-			last_log = HAL_GetTick();
-		}
+          if (event == EVENT_FALL_CONFIRMED)
+          {
+              handle_event(event);
+              break;
+          }
+
+          HAL_Delay(IMU_ACTIVATION_PERIOD_MS);
+      }
+      imu_active = false;
+    }
+    if(!fsr_detect_instability()){
+      triggered = false;
+    }
+    if (imu_active)
+    {
+        static uint32_t last_log = 0;
+
+        if (HAL_GetTick() - last_log > 200)
+        {
+            log_info("Acc: %.2f | Gyro: %.2f",
+                    imu.acc_mag, imu.gyro_mag);
+            last_log = HAL_GetTick();
+        }
+    }
 
 		static uint32_t last = 0;
 		if (BSP_PB_GetState(BUTTON_USER) == BUTTON_PRESSED) {
