@@ -14,8 +14,9 @@
 #define ACC_SENSITIVITY 0.000061f
 #define GYRO_SENSITIVITY 0.00875f  // 250 dps
 
-#define MAIN_LOOP_PERIOD_MS 10    // ~100 Hz loop
-#define IMU_ACTIVATION_PERIOD_MS 10    // ~100 Hz loop
+#define MAIN_LOOP_PERIOD_MS 10 
+#define IMU_SAMPLE_PERIOD_MS 10    // ~100 Hz loop
+#define IMU_ACTIVE_WINDOW_MS 1000    // ~1 sec monitoring window for IMU
 
 typedef struct {
 	float ax, ay, az;

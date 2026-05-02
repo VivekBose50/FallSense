@@ -51,6 +51,15 @@ COM_InitTypeDef BspCOMInit;
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
+typedef enum {
+	SYSTEM_IDLE = 0, SYSTEM_MONITORING_IMU
+} system_runtime_state_t;
+
+imu_data_t imu;
+static system_runtime_state_t runtime_state = SYSTEM_IDLE;
+static uint32_t imu_start_time = 0;
+static bool fsr_prev = false;
+static uint32_t last_imu_sample_time = 0;
 
 /* USER CODE END PV */
 
@@ -65,7 +74,6 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -103,7 +111,7 @@ int main(void) {
 	MX_I2C1_Init();
 	/* USER CODE BEGIN 2 */
 	imu_init();
-  fsr_init();
+	fsr_init();
 	/* USER CODE END 2 */
 
 	/* Initialize leds */
@@ -126,64 +134,51 @@ int main(void) {
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
-	imu_data_t imu;
-
 	while (1) {
 
 		/* USER CODE END WHILE */
 		/* USER CODE BEGIN 3 */
-    bool imu_active = false;
-    static bool triggered = false;
-		if (fsr_detect_instability() && !triggered)
-    {
-      triggered = true;
-      imu_active = true;
-      // Activate IMU pipeline
-      for (int i = 0; i < 100; i++)   // ~1 second
-      {
-          imu_process(&imu);
-
-          fall_event_t event = detect_fall(&imu);
-
-          if (event == EVENT_FALL_CONFIRMED)
-          {
-              handle_event(event);
-              break;
-          }
-
-          HAL_Delay(IMU_ACTIVATION_PERIOD_MS);
-      }
-      imu_active = false;
-    }
-    if(!fsr_detect_instability()){
-      triggered = false;
-    }
-    if (imu_active)
-    {
-        static uint32_t last_log = 0;
-
-        if (HAL_GetTick() - last_log > 200)
-        {
-            log_info("Acc: %.2f | Gyro: %.2f",
-                    imu.acc_mag, imu.gyro_mag);
-            last_log = HAL_GetTick();
-        }
-    }
-
-		static uint32_t last = 0;
-		if (BSP_PB_GetState(BUTTON_USER) == BUTTON_PRESSED) {
-			if (HAL_GetTick() - last > 500) {
-				HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
-				HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_2);
-				last = HAL_GetTick();
+		bool fsr_now = false;
+		uint32_t now = HAL_GetTick();
+		switch (runtime_state) {
+		case SYSTEM_IDLE: {
+			fsr_now = fsr_detect_instability();
+			if (fsr_now && !fsr_prev) {
+				runtime_state = SYSTEM_MONITORING_IMU;
+				imu_start_time = now;
+				last_imu_sample_time = imu_start_time; // Reset sampling time on trigger.
 			}
-			BSP_LED_Off(LED_BLUE);
-		} else {
-			BSP_LED_Off(LED_GREEN);
-			BSP_LED_Off(LED_RED);
-			BSP_LED_On(LED_BLUE);
+			break;
 		}
-		HAL_Delay(MAIN_LOOP_PERIOD_MS);
+
+		case SYSTEM_MONITORING_IMU:
+			//IMU Sampling
+			if ((now - last_imu_sample_time) >= IMU_SAMPLE_PERIOD_MS) {
+				imu_process(&imu);
+				last_imu_sample_time = now;
+				fall_event_t event = detect_fall(&imu);
+				if (event != EVENT_NONE) {
+					handle_event(event);
+					if (event == EVENT_FALL_CONFIRMED) {
+						runtime_state = SYSTEM_IDLE;
+					}
+				}
+			}
+			//Timeout
+			if ((now - imu_start_time) > IMU_ACTIVE_WINDOW_MS) {
+				runtime_state = SYSTEM_IDLE;
+			}
+			break;
+		}
+		fsr_prev = fsr_now;
+		//Logging
+		static uint32_t last_log = 0;
+		if ((now - last_log > 200)
+				&& (runtime_state == SYSTEM_MONITORING_IMU)) {
+			log_info("Acc: %.2f | Gyro: %.2f", imu.acc_mag, imu.gyro_mag);
+			last_log = now;
+		}
+		HAL_Delay(MAIN_LOOP_PERIOD_MS); // prevent power wastage & CPU Hogging
 	}
 	/* USER CODE END 3 */
 }
