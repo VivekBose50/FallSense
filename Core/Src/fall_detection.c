@@ -1,9 +1,10 @@
 #include "fall_detection.h"
 
+static uint32_t t0 = 0;
+static fall_state_t state = FALL_STATE_NORMAL;
+
 fall_event_t detect_fall(const imu_data_t* imu) {
-	static fall_state_t state = FALL_STATE_NORMAL;
 	fall_event_t event = EVENT_NONE;
-	static uint32_t t0 = 0;
 
 	switch (state) {
 	case FALL_STATE_NORMAL: 
@@ -26,7 +27,7 @@ fall_event_t detect_fall(const imu_data_t* imu) {
 			event = EVENT_IMPACT;
 			state = FALL_STATE_POST_IMPACT;
 			t0 = HAL_GetTick();
-			log_info(" IMPACT--------- : A=%.2f gyro=%.2f", imu->acc_mag, imu->gyro_mag);
+			log_info(" IMPACT-------------IMPACT-------IMPACT------------IMPACT: A=%.2f gyro=%.2f", imu->acc_mag, imu->gyro_mag);
 		} else if (HAL_GetTick() - t0 > FALL_FREEFALL_ACC_TIMEOUT_MS) {
 			state = FALL_STATE_NORMAL;       //Reset
 			event = EVENT_TIMEOUT;
@@ -47,4 +48,9 @@ fall_event_t detect_fall(const imu_data_t* imu) {
 		break;
 	}
 	return event;
+}
+
+void reset_fall_detection(void){
+    t0 = 0;
+    state =  FALL_STATE_NORMAL;
 }

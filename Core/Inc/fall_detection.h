@@ -21,3 +21,4 @@ typedef enum {
 } fall_state_t;
 
 fall_event_t detect_fall(const imu_data_t*);
+void reset_fall_detection(void);
